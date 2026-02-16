@@ -8,7 +8,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!-- 本機開發：使用本地 Revit API DLL -->
+  <ItemGroup Condition="'$(CI)' != 'true'">
     <Reference Include="RevitAPI">
       <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll</HintPath>
       <Private>False</Private>
@@ -17,6 +18,16 @@
       <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPIUI.dll</HintPath>
       <Private>False</Private>
     </Reference>
+  </ItemGroup>
+
+  <!-- CI 環境：使用 NuGet 套件替代 Revit API -->
+  <ItemGroup Condition="'$(CI)' == 'true'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2024.*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.*" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Net.WebSockets" />
     <Reference Include="System.Net.WebSockets.Client" />
