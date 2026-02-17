@@ -6,10 +6,15 @@ on:
       - main
       - master
       - Google_Jules_Github_Actions
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
       - master
+
+permissions:
+  contents: write
 
 jobs:
   build-dotnet:
@@ -76,3 +81,41 @@ jobs:
         with:
           name: MCP-Server-Build
           path: MCP-Server/build/
+
+  release:
+    name: Create Release
+    needs: [build-dotnet, build-node]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download Artifacts (2022)
+        uses: actions/download-artifact@v4
+        with:
+          name: RevitMCP-2022-Build
+          path: RevitMCP-2022
+
+      - name: Download Artifacts (2024)
+        uses: actions/download-artifact@v4
+        with:
+          name: RevitMCP-2024-Build
+          path: RevitMCP-2024
+
+      - name: Download Artifacts (MCP Server)
+        uses: actions/download-artifact@v4
+        with:
+          name: MCP-Server-Build
+          path: MCP-Server
+
+      - name: Zip Artifacts
+        run: |
+          zip -r RevitMCP-2022.zip RevitMCP-2022
+          zip -r RevitMCP-2024.zip RevitMCP-2024
+          zip -r MCP-Server.zip MCP-Server
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            RevitMCP-2022.zip
+            RevitMCP-2024.zip
+            MCP-Server.zip
