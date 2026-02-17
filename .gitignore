@@ -1,6 +1,6 @@
 # Build outputs
-MCP/MCP/bin/
-MCP/MCP/obj/
+MCP/bin/
+MCP/obj/
 MCP-Server/build/
 MCP-Server/node_modules/
 
@@ -44,8 +44,6 @@ PRIVATE_INSTRUCTIONS.md
 # 教材（本地使用，不 push）
 教材/
 
-# 修正 MCP obj 路徑
-MCP/obj/
 
 # Result 資料夾（與此專案無關）
 result/
