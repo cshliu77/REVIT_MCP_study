@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ========================================
+  # TypeScript MCP Server 編譯
+  # ========================================
+  build-mcp-server:
+    name: Build MCP Server (TypeScript)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout 程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Node.js 環境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: MCP-Server/package-lock.json
+
+      - name: 安裝依賴套件
+        run: npm ci
+        working-directory: MCP-Server
+
+      - name: 編譯 TypeScript
+        run: npx tsc
+        working-directory: MCP-Server
+
+      - name: 上傳 MCP Server 建置產物
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-server-build
+          path: |
+            MCP-Server/build/
+            MCP-Server/package.json
+            MCP-Server/package-lock.json
+
+  # ========================================
+  # C# Revit Add-in 編譯 (多版本矩陣)
+  # ========================================
+  build-revit-addin:
+    name: Build Revit Add-in (${{ matrix.revit-version }})
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        include:
+          - revit-version: '2022'
+            project-file: 'MCP/RevitMCP.csproj'
+            artifact-name: 'revit-addin-2022'
+            output-path: 'MCP/bin/Release/'
+          - revit-version: '2024'
+            project-file: 'MCP/RevitMCP.2024.csproj'
+            artifact-name: 'revit-addin-2024'
+            output-path: 'MCP/bin/Release.2024/'
+
+    steps:
+      - name: Checkout 程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 還原 NuGet 套件
+        run: dotnet restore ${{ matrix.project-file }} /p:CI=true
+
+      - name: 編譯 Revit ${{ matrix.revit-version }} Add-in
+        run: dotnet build ${{ matrix.project-file }} -c Release --no-restore /p:CI=true
+
+      - name: 上傳 Revit Add-in 建置產物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: |
+            ${{ matrix.output-path }}RevitMCP.dll
+            ${{ matrix.output-path }}RevitMCP.pdb
+            ${{ matrix.output-path }}Newtonsoft.Json.dll
+
+  # ========================================
+  # 打包並發佈到 GitHub Releases
+  # ========================================
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-mcp-server, build-revit-addin]
+
+    steps:
+      - name: Checkout 程式碼
+        uses: actions/checkout@v4
+
+      - name: 取得版本號
+        id: version
+        run: echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: 下載所有建置產物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      # --- 打包 Revit 2022 Add-in ---
+      - name: 打包 Revit 2022 Add-in
+        run: |
+          mkdir -p release/RevitMCP-Revit2022
+          cp artifacts/revit-addin-2022/MCP/bin/Release/RevitMCP.dll release/RevitMCP-Revit2022/
+          cp artifacts/revit-addin-2022/MCP/bin/Release/RevitMCP.pdb release/RevitMCP-Revit2022/
+          cp artifacts/revit-addin-2022/MCP/bin/Release/Newtonsoft.Json.dll release/RevitMCP-Revit2022/
+          cp MCP/RevitMCP.addin release/RevitMCP-Revit2022/
+          cp MCP/Configuration/config.json release/RevitMCP-Revit2022/
+          cd release && zip -r "RevitMCP-Revit2022-${{ steps.version.outputs.tag }}.zip" RevitMCP-Revit2022/
+
+      # --- 打包 Revit 2024 Add-in ---
+      - name: 打包 Revit 2024 Add-in
+        run: |
+          mkdir -p release/RevitMCP-Revit2024
+          cp artifacts/revit-addin-2024/MCP/bin/Release.2024/RevitMCP.dll release/RevitMCP-Revit2024/
+          cp artifacts/revit-addin-2024/MCP/bin/Release.2024/RevitMCP.pdb release/RevitMCP-Revit2024/
+          cp artifacts/revit-addin-2024/MCP/bin/Release.2024/Newtonsoft.Json.dll release/RevitMCP-Revit2024/
+          cp MCP/RevitMCP.2024.addin release/RevitMCP-Revit2024/RevitMCP.addin
+          cp MCP/Configuration/config.json release/RevitMCP-Revit2024/
+          cd release && zip -r "RevitMCP-Revit2024-${{ steps.version.outputs.tag }}.zip" RevitMCP-Revit2024/
+
+      # --- 打包 MCP Server ---
+      - name: 打包 MCP Server
+        run: |
+          mkdir -p release/MCP-Server
+          cp -r artifacts/mcp-server-build/MCP-Server/build/ release/MCP-Server/build/
+          cp artifacts/mcp-server-build/MCP-Server/package.json release/MCP-Server/
+          cp artifacts/mcp-server-build/MCP-Server/package-lock.json release/MCP-Server/
+          cd release && zip -r "MCP-Server-${{ steps.version.outputs.tag }}.zip" MCP-Server/
+
+      # --- 建立 GitHub Release ---
+      - name: 建立 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            release/RevitMCP-Revit2022-${{ steps.version.outputs.tag }}.zip
+            release/RevitMCP-Revit2024-${{ steps.version.outputs.tag }}.zip
+            release/MCP-Server-${{ steps.version.outputs.tag }}.zip
+          body: |
+            ## Revit MCP ${{ steps.version.outputs.tag }}
+
+            ### 下載說明
+
+            | 檔案 | 說明 |
+            |------|------|
+            | `RevitMCP-Revit2022-${{ steps.version.outputs.tag }}.zip` | Revit 2022/2023 Add-in |
+            | `RevitMCP-Revit2024-${{ steps.version.outputs.tag }}.zip` | Revit 2024 Add-in |
+            | `MCP-Server-${{ steps.version.outputs.tag }}.zip` | MCP Server (Node.js) |
+
+            ### 安裝方式
+
+            **Revit Add-in：**
+            1. 解壓縮對應 Revit 版本的 zip 檔
+            2. 將所有檔案複製到 `%ProgramData%\Autodesk\Revit\Addins\{版本}\RevitMCP\`
+            3. 將 `RevitMCP.addin` 複製到 `%ProgramData%\Autodesk\Revit\Addins\{版本}\`
+
+            **MCP Server：**
+            1. 解壓縮 `MCP-Server-*.zip`
+            2. 執行 `npm ci --production` 安裝執行時依賴
+            3. 執行 `node build/index.js` 啟動服務
